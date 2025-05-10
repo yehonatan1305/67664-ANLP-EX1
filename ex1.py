@@ -5,9 +5,7 @@ import evaluate
 from transformers import AutoConfig, AutoTokenizer, AutoModelForSequenceClassification, DataCollatorWithPadding
 import wandb
 from transformers import Trainer, TrainingArguments, HfArgumentParser
-import torch
 import time
-from tqdm import tqdm
 
 # Load metric once at module level
 metric = evaluate.load("glue", "mrpc")
@@ -40,7 +38,7 @@ def init_wandb(script_args, entity="yehonata-hirshcel-hebrew-university-of-jerus
     run = wandb.init(
         entity=entity,
         project=project,
-        name=f"{MODELNAME}-lr{script_args.lr}-e{script_args.num_train_epochs}-b{script_args.batch_size}-{cur_time}",
+        name=f"lr{script_args.lr}-e{script_args.num_train_epochs}-b{script_args.batch_size}-{cur_time}",
         group="experiment_runs",
         job_type="training" if script_args.do_train else "prediction",
         config={
@@ -69,6 +67,7 @@ def pre_process_function(examples):
 
 def init_trainer(model, args, train_dataset=None, eval_dataset=None, compute_metrics=None, data_collator=None):
     # Initialize wandb
+    print("Initializing wandb")
     run = init_wandb(args)
     training_args = TrainingArguments(
         output_dir=f"./saved_models/{run.name}",
@@ -99,9 +98,11 @@ def init_trainer(model, args, train_dataset=None, eval_dataset=None, compute_met
     return trainer
 
 def train_model(args):
+    print("Loading model")
     config = AutoConfig.from_pretrained(MODELNAME, num_labels=2)  # MRPC is binary classification
     model = AutoModelForSequenceClassification.from_pretrained(MODELNAME, config=config)
     data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
+    print("Initializing trainer")
     trainer = init_trainer(
         model=model,
         args=args,
@@ -110,8 +111,8 @@ def train_model(args):
         compute_metrics=compute_metrics,
         data_collator=data_collator
     )
-    print(trainer.model.device)
     # Train the model
+    print("Starting training")
     trainer.train()
     print("Training complete.")
     # Save the model after training
@@ -145,13 +146,22 @@ def predict_model(args):
 
 
 if __name__ == "__main__":
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print("Loading args")
     args = get_args()
+    print("Loading dataset")
     ds = load_dataset("nyu-mll/glue", DATASETNAME)
+    print("Loading tokenizer")
     tokenizer = AutoTokenizer.from_pretrained(MODELNAME)
-    train_dataset = ds["train"].map(pre_process_function, batched=True).shuffle(seed=SEED).select(range(args.max_train_samples))
-    eval_dataset = ds["validation"].map(pre_process_function, batched=True).shuffle(seed=SEED).select(range(args.max_eval_samples))
-    test_dataset = ds["test"].map(pre_process_function, batched=True).shuffle(seed=SEED).select(range(args.max_predict_samples))
+    print("splitting dataset")
+    train_dataset = ds["train"].map(pre_process_function, batched=True)
+    if args.max_train_samples > -1:
+        train_dataset = train_dataset.select(range(args.max_train_samples))
+    eval_dataset = ds["validation"].map(pre_process_function, batched=True)
+    if args.max_eval_samples > -1:
+        eval_dataset = eval_dataset.select(range(args.max_eval_samples))
+    test_dataset = ds["test"].map(pre_process_function, batched=True)
+    if args.max_predict_samples > -1:
+        test_dataset = test_dataset.select(range(args.max_predict_samples))
     if args.do_predict:
         predict_model(args)
     if args.do_train:
