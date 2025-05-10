@@ -117,6 +117,11 @@ def train_model(args):
     print("Training complete.")
     # Save the model after training
     trainer.save_model("./saved_models/final_model")
+    #report to res.txt the validation accuracy
+    eval_results = trainer.evaluate()
+    with open("res.txt", "a") as f:
+        f.write(f"epoch_num: {args.num_train_epochs}, lr: {args.lr}, batch_size: {args.batch_size}, eval_acc: {eval_results['eval_accuracy']:.4f}\n")
+
 
 def compute_metrics(eval_pred):
     predictions, labels = eval_pred
