@@ -1,5 +1,4 @@
 print("Starting script")
-import sys
 from dataclasses import dataclass, field
 from datasets import load_dataset
 print("Importing evaluate")
@@ -16,7 +15,6 @@ print("Imports done")
 ISJUPYTER = False
 PATH = "/content/drive/MyDrive/ANLP/EX1" if ISJUPYTER else "."
 
-# Load metric once at module level
 metric = evaluate.load("glue", "mrpc")
 
 DATASETNAME = "mrpc"
@@ -26,15 +24,15 @@ run_name_format = lambda args, cur_time: f"epoch_num_{args.num_train_epochs}_lr_
 
 @dataclass
 class ScriptArguments:
-    max_train_samples: int = field(default=12)
-    max_eval_samples: int = field(default=12)
-    max_predict_samples: int = field(default=3)
-    num_train_epochs: int = field(default=1)
-    lr: float = field(default=5e-5)
-    batch_size: int = field(default=3)
-    do_train: bool = field(default=True)
-    do_predict: bool = field(default=False)
-    model_path: str = field(default=f"{PATH}/saved_models/epoch_num_1_lr_5e-05_batch_size_3")
+    max_train_samples: int = field(default=-1)
+    max_eval_samples: int = field(default=-1)
+    max_predict_samples: int = field(default=-1)
+    num_train_epochs: int = field(default=3)
+    lr: float = field(default=5e-4)
+    batch_size: int = field(default=64)
+    do_train: bool = field(default=False)
+    do_predict: bool = field(default=True)
+    model_path: str = field(default=f"{PATH}/saved_models/epoch_num_2_lr_5e-05_batch_size_32_1746905852")
 
 def get_args():
     if ISJUPYTER:
@@ -102,8 +100,7 @@ def init_trainer(model, args, cur_time, train_dataset=None, eval_dataset=None, c
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         compute_metrics=compute_metrics,
-        data_collator=data_collator,
-
+        data_collator=data_collator
     )
     return trainer
 
@@ -143,7 +140,7 @@ def compute_metrics(eval_pred):
 def predict_model(args):
     model = AutoModelForSequenceClassification.from_pretrained(args.model_path)
     data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
-    
+
     # Initialize trainer for prediction
     trainer = init_trainer(
         model=model,
@@ -155,26 +152,25 @@ def predict_model(args):
         data_collator=data_collator
     )
     trainer.model.eval()  # Set the model to evaluation mode
-    
+
     # Run prediction
     predictions = trainer.predict(test_dataset)
     predicted_labels = predictions.predictions.argmax(-1)
-    
+
     # Get raw sentences from test dataset
     test_samples = ds["test"]
     if args.max_predict_samples > -1:
         test_samples = test_samples.select(range(args.max_predict_samples))
-    
+
     # Write predictions to file
     with open(f"{PATH}/predictions.txt", "w") as f:
         for idx, pred_label in enumerate(predicted_labels):
             sentence1 = test_samples[idx]["sentence1"]
             sentence2 = test_samples[idx]["sentence2"]
             f.write(f"{sentence1}###{sentence2}###{pred_label}\n")
-    
+
     # Print metrics
     print(predictions.metrics)
-
 
 if __name__ == "__main__":
     print("Loading args")
