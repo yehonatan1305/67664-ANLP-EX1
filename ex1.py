@@ -22,10 +22,10 @@ class ScriptArguments:
     max_predict_samples: int = field(default=3)
     num_train_epochs: int = field(default=1)
     lr: float = field(default=5e-5)
-    batch_size: int = field(default=3)
-    do_train: bool = field(default=True)
-    do_predict: bool = field(default=False)
-    model_path: str = field(default="saved_models/final_model")
+    batch_size: int = field(default=1)
+    do_train: bool = field(default=False)
+    do_predict: bool = field(default=True)
+    model_path: str = field(default="./saved_models/final_model")
 
 def get_args():
     parser = HfArgumentParser(ScriptArguments)
@@ -78,8 +78,8 @@ def init_trainer(model, args, train_dataset=None, eval_dataset=None, compute_met
         do_eval=True if eval_dataset else False,
         logging_dir="./logs",
         logging_steps=1,  # Log every step
-        eval_strategy="steps",  # Evaluate at each logging step
-        eval_steps=1,  # Evaluate every step
+        eval_strategy="steps" if eval_dataset else "no",  # Only evaluate if we have eval data
+        eval_steps=1 if eval_dataset else None,  # Only set eval steps if we have eval data
         report_to="wandb",
         save_strategy="epoch",  # Save model at the end of each epoch
         save_total_limit=1,  # Keep only the latest model
@@ -116,7 +116,7 @@ def train_model(args):
     trainer.train()
     print("Training complete.")
     # Save the model after training
-    trainer.save_model("./saved_models/final_model")
+    trainer.save_model(f"./saved_models/lr{args.lr}-e{args.num_train_epochs}-b{args.batch_size}")
     #report to res.txt the validation accuracy
     eval_results = trainer.evaluate()
     with open("res.txt", "a") as f:
@@ -129,7 +129,7 @@ def compute_metrics(eval_pred):
     return metric.compute(predictions=predictions, references=labels)
 
 def predict_model(args):
-    model = AutoModelForSequenceClassification.from_pretrained("./saved_models/final_model")
+    model = AutoModelForSequenceClassification.from_pretrained(args.model_path)
     data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
     
     # Initialize trainer for prediction
@@ -141,13 +141,26 @@ def predict_model(args):
         compute_metrics=compute_metrics,
         data_collator=data_collator
     )
+    trainer.model.eval()  # Set the model to evaluation mode
     
     # Run prediction
     predictions = trainer.predict(test_dataset)
+    predicted_labels = predictions.predictions.argmax(-1)
+    
+    # Get raw sentences from test dataset
+    test_samples = ds["test"]
+    if args.max_predict_samples > -1:
+        test_samples = test_samples.select(range(args.max_predict_samples))
+    
+    # Write predictions to file
+    with open("predictions.txt", "w") as f:
+        for idx, pred_label in enumerate(predicted_labels):
+            sentence1 = test_samples[idx]["sentence1"]
+            sentence2 = test_samples[idx]["sentence2"]
+            f.write(f"{sentence1}###{sentence2}###{pred_label}\n")
     
     # Print metrics
     print(predictions.metrics)
-
 
 
 if __name__ == "__main__":
