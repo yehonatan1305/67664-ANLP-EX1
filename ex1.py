@@ -24,9 +24,9 @@ class ScriptArguments:
     max_predict_samples: int = field(default=3)
     num_train_epochs: int = field(default=1)
     lr: float = field(default=5e-5)
-    batch_size: int = field(default=12)
-    do_train: bool = field(default=False)
-    do_predict: bool = field(default=True)
+    batch_size: int = field(default=3)
+    do_train: bool = field(default=True)
+    do_predict: bool = field(default=False)
     model_path: str = field(default="saved_models/final_model")
 
 def get_args():
@@ -78,7 +78,9 @@ def init_trainer(model, args, train_dataset=None, eval_dataset=None, compute_met
         learning_rate=args.lr,
         do_eval=True if eval_dataset else False,
         logging_dir="./logs",
-        logging_steps=10,
+        logging_steps=1,  # Log every step
+        eval_strategy="steps",  # Evaluate at each logging step
+        eval_steps=1,  # Evaluate every step
         report_to="wandb",
         save_strategy="epoch",  # Save model at the end of each epoch
         save_total_limit=1,  # Keep only the latest model
