@@ -1,11 +1,20 @@
+print("Starting script")
+import sys
 from dataclasses import dataclass, field
-from typing import Optional
 from datasets import load_dataset
+print("Importing evaluate")
 import evaluate
+print("Done importing evaluate")
 from transformers import AutoConfig, AutoTokenizer, AutoModelForSequenceClassification, DataCollatorWithPadding
+print("Import wandb")
 import wandb
+print("Done importing wandb")
 from transformers import Trainer, TrainingArguments, HfArgumentParser
 import time
+print("Imports done")
+
+ISJUPYTER = False
+PATH = "/content/drive/MyDrive/ANLP/EX1" if ISJUPYTER else "."
 
 # Load metric once at module level
 metric = evaluate.load("glue", "mrpc")
@@ -13,7 +22,7 @@ metric = evaluate.load("glue", "mrpc")
 DATASETNAME = "mrpc"
 MODELNAME = "google-bert/bert-base-uncased"
 SEED = 0
-
+run_name_format = lambda args, cur_time: f"epoch_num_{args.num_train_epochs}_lr_{args.lr}_batch_size_{args.batch_size}_{int(cur_time)}"
 
 @dataclass
 class ScriptArguments:
@@ -22,23 +31,24 @@ class ScriptArguments:
     max_predict_samples: int = field(default=3)
     num_train_epochs: int = field(default=1)
     lr: float = field(default=5e-5)
-    batch_size: int = field(default=1)
-    do_train: bool = field(default=False)
-    do_predict: bool = field(default=True)
-    model_path: str = field(default="./saved_models/final_model")
+    batch_size: int = field(default=3)
+    do_train: bool = field(default=True)
+    do_predict: bool = field(default=False)
+    model_path: str = field(default=f"{PATH}/saved_models/epoch_num_1_lr_5e-05_batch_size_3")
 
 def get_args():
-    parser = HfArgumentParser(ScriptArguments)
-    args = parser.parse_args_into_dataclasses()[0]
-    return args
+    if ISJUPYTER:
+        return ScriptArguments()
+    else:
+        parser = HfArgumentParser(ScriptArguments)
+        return parser.parse_args_into_dataclasses()[0]
 
 
-def init_wandb(script_args, entity="yehonata-hirshcel-hebrew-university-of-jerusalem", project="Test-Project"):
-    cur_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+def init_wandb(script_args,cur_time,entity="yehonata-hirshcel-hebrew-university-of-jerusalem", project="ANLP-EX1", ):
     run = wandb.init(
         entity=entity,
         project=project,
-        name=f"lr{script_args.lr}-e{script_args.num_train_epochs}-b{script_args.batch_size}-{cur_time}",
+        name=run_name_format(script_args, cur_time),
         group="experiment_runs",
         job_type="training" if script_args.do_train else "prediction",
         config={
@@ -65,24 +75,23 @@ def pre_process_function(examples):
         max_length=tokenizer.model_max_length
     )
 
-def init_trainer(model, args, train_dataset=None, eval_dataset=None, compute_metrics=None, data_collator=None):
+def init_trainer(model, args, cur_time, train_dataset=None, eval_dataset=None, compute_metrics=None, data_collator=None):
     # Initialize wandb
     print("Initializing wandb")
-    run = init_wandb(args)
+    run = init_wandb(args, cur_time)
     training_args = TrainingArguments(
-        output_dir=f"./saved_models/{run.name}",
+        output_dir=f"{PATH}/saved_models/{run.name}",
         per_device_train_batch_size=args.batch_size,
         per_device_eval_batch_size=args.batch_size,
         num_train_epochs=args.num_train_epochs,
         learning_rate=args.lr,
         do_eval=True if eval_dataset else False,
-        logging_dir="./logs",
+        logging_dir=f"{PATH}/logs",
         logging_steps=1,  # Log every step
         eval_strategy="steps" if eval_dataset else "no",  # Only evaluate if we have eval data
         eval_steps=1 if eval_dataset else None,  # Only set eval steps if we have eval data
         report_to="wandb",
-        save_strategy="epoch",  # Save model at the end of each epoch
-        save_total_limit=1,  # Keep only the latest model
+        save_strategy="no",  # Do not save the model during training
         run_name=run.name,
         seed=SEED,
     )
@@ -93,7 +102,8 @@ def init_trainer(model, args, train_dataset=None, eval_dataset=None, compute_met
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         compute_metrics=compute_metrics,
-        data_collator=data_collator
+        data_collator=data_collator,
+
     )
     return trainer
 
@@ -103,9 +113,11 @@ def train_model(args):
     model = AutoModelForSequenceClassification.from_pretrained(MODELNAME, config=config)
     data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
     print("Initializing trainer")
+    cur_time = time.time()
     trainer = init_trainer(
         model=model,
         args=args,
+        cur_time=cur_time,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         compute_metrics=compute_metrics,
@@ -116,10 +128,10 @@ def train_model(args):
     trainer.train()
     print("Training complete.")
     # Save the model after training
-    trainer.save_model(f"./saved_models/lr{args.lr}-e{args.num_train_epochs}-b{args.batch_size}")
+    trainer.save_model(f"{PATH}/saved_models/{run_name_format(args,cur_time)}")
     #report to res.txt the validation accuracy
     eval_results = trainer.evaluate()
-    with open("res.txt", "a") as f:
+    with open(f"{PATH}/res.txt", "a") as f:
         f.write(f"epoch_num: {args.num_train_epochs}, lr: {args.lr}, batch_size: {args.batch_size}, eval_acc: {eval_results['eval_accuracy']:.4f}\n")
 
 
@@ -136,6 +148,7 @@ def predict_model(args):
     trainer = init_trainer(
         model=model,
         args=args,
+        cur_time=time.time(),
         train_dataset=None,
         eval_dataset=None,
         compute_metrics=compute_metrics,
@@ -153,7 +166,7 @@ def predict_model(args):
         test_samples = test_samples.select(range(args.max_predict_samples))
     
     # Write predictions to file
-    with open("predictions.txt", "w") as f:
+    with open(f"{PATH}/predictions.txt", "w") as f:
         for idx, pred_label in enumerate(predicted_labels):
             sentence1 = test_samples[idx]["sentence1"]
             sentence2 = test_samples[idx]["sentence2"]
@@ -165,6 +178,7 @@ def predict_model(args):
 
 if __name__ == "__main__":
     print("Loading args")
+    # Set parse_args=True when running from command line, False when running in Jupyter
     args = get_args()
     print("Loading dataset")
     ds = load_dataset("nyu-mll/glue", DATASETNAME)

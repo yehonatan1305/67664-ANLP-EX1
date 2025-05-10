@@ -1,0 +1,1 @@
+epoch_num: 1, lr: 5e-05, batch_size: 3, eval_acc: 0.4167
