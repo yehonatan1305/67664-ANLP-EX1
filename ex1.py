@@ -1,16 +1,11 @@
 print("Starting script")
 from dataclasses import dataclass, field
 from datasets import load_dataset
-print("Importing evaluate")
 import evaluate
-print("Done importing evaluate")
 from transformers import AutoConfig, AutoTokenizer, AutoModelForSequenceClassification, DataCollatorWithPadding
-print("Import wandb")
 import wandb
-print("Done importing wandb")
 from transformers import Trainer, TrainingArguments, HfArgumentParser
 import time
-print("Imports done")
 
 ISJUPYTER = False
 PATH = "/content/drive/MyDrive/ANLP/EX1" if ISJUPYTER else "."
@@ -172,6 +167,28 @@ def predict_model(args):
     # Print metrics
     print(predictions.metrics)
 
+
+def compare_models(best_model_path,worst_model_path, validation_dataset):
+    best_model = AutoModelForSequenceClassification.from_pretrained(best_model_path)
+    worst_model = AutoModelForSequenceClassification.from_pretrained(worst_model_path)
+    best_model.eval()
+    worst_model.eval()
+    count = 0
+    for sentence in validation_dataset:
+        inputs = tokenizer(sentence["sentence1"], sentence["sentence2"], return_tensors="pt", padding=True, truncation=True)
+        best_model_output = best_model(**inputs)
+        worst_model_output = worst_model(**inputs)
+        best_pred = best_model_output.logits.argmax(-1).item()
+        worst_pred = worst_model_output.logits.argmax(-1).item()
+        if best_pred != worst_pred and best_pred == sentence["label"]:
+            print(f"Label: {sentence['label']}")
+            print(f"Best Model Prediction: {best_pred}, Worst Model Prediction: {worst_pred}")
+            print(f"Sentence: {sentence['sentence1']} || {sentence['sentence2']}")
+            print("-" * 50)
+            count += 1
+        if count >= 5:
+            break
+        
 if __name__ == "__main__":
     print("Loading args")
     # Set parse_args=True when running from command line, False when running in Jupyter
